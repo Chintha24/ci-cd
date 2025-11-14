@@ -34,15 +34,16 @@ jobs:
           username: ubuntu
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo "Updating image and deploying..."
+            echo "Deploying updated image to Kubernetes..."
 
             export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
             export GITHUB_RUN_NUMBER=${{ github.run_number }}
 
-            sed -i "s|image:.*|image: ${DOCKER_USERNAME}/html-app:${GITHUB_RUN_NUMBER}|g" /root/k8s/html-deployment.yaml
+            # Update image
+            sed -i "s|image:.*|image: ${DOCKER_USERNAME}/html-app:${GITHUB_RUN_NUMBER}|g" /home/ubuntu/k8s/html-deployment.yaml
+ 
+            # Apply Kubernetes resources
+            kubectl apply -f /home/ubuntu/k8s/html-deployment.yaml
+            kubectl apply -f /home/ubuntu/k8s/html-service.yaml
 
-            kubectl apply -f /root/k8s/html-deployment.yaml
-            kubectl apply -f /root/k8s/html-service.yaml
-
-            echo "Deployment updated!"
             kubectl get pods -o wide
