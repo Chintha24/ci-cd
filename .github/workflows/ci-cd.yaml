@@ -1,0 +1,89 @@
+name: React App CI/CD with Tests and EC2 Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'react-project/**'
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        working-directory: react-project
+        run: npm ci
+
+      # Step 4: Run tests
+      - name: Run tests
+        working-directory: react-project
+        run: npm test -- --watchAll=false
+
+      # Step 5: Build React app (only if tests pass)
+      - name: Build React app
+        working-directory: react-project
+        run: npm run build
+
+      # Step 6: Build Docker image
+      - name: Build Docker image
+        working-directory: react-project
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/react-project:${{ github.run_number }} .
+
+      # Step 7: Log in to Docker Hub
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      # Step 8: Push Docker image
+      - name: Push Docker image
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/react-project:${{ github.run_number }}
+
+      # # Step 9: Deploy to EC2
+      # - name: Deploy to EC2
+      #   uses: appleboy/ssh-action@v1.0.0
+      #   with:
+      #     host: ${{ secrets.SERVER_IP }}
+      #     username: ${{ secrets.SERVER_USER }}
+      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #     script: |
+      #       echo "Pulling latest Docker image..."
+      #       docker pull ${{ secrets.DOCKER_USERNAME }}/react-project:${{ github.run_number }}
+      #       docker stop react-project || true
+      #       docker rm react-project || true
+      #       docker run -d -p 80:80 --name react-project ${{ secrets.DOCKER_USERNAME }}/react-project:${{ github.run_number }}
+
+
+      # Step 9: Deploy to Kubernetes (via kubeadm master)
+      - name: Deploy to Kubernetes
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.MASTER_NODE_IP }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Updating image version and deploying to Kubernetes..."
+
+            export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+            export GITHUB_RUN_NUMBER=${{ github.run_number }}
+
+            # Update deployment YAML with latest image tag
+            sed -i "s|image:.*|image: ${DOCKER_USERNAME}/react-project:${GITHUB_RUN_NUMBER}|g" /root/k8s/react-deployment.yaml
+
+            # Apply Kubernetes manifests
+            kubectl apply -f /root/k8s/react-deployment.yaml
+            kubectl apply -f /root/k8s/react-service.yaml
+
+            echo "Deployment updated successfully!"
+            kubectl get pods -o wide
